@@ -1,5 +1,8 @@
 # UGREEN SecurityWatch
 
+[![Quality](https://github.com/Railsimulatornet/UGREEN-NAS-SecurityWatch/actions/workflows/quality.yml/badge.svg?branch=main)](https://github.com/Railsimulatornet/UGREEN-NAS-SecurityWatch/actions/workflows/quality.yml)
+[![CodeQL](https://github.com/Railsimulatornet/UGREEN-NAS-SecurityWatch/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/Railsimulatornet/UGREEN-NAS-SecurityWatch/actions/workflows/codeql.yml)
+
 Community-Lösung für UGREEN NAS mit UGOS zur Prüfung von Host-Dateisystem und Docker-Images mit Trivy.
 
 Community solution for UGREEN NAS systems running UGOS to scan the host filesystem and Docker images with Trivy.
