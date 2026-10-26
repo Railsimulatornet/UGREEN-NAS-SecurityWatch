@@ -1,0 +1,78 @@
+name: Verified CodeQL patch auto-merge
+
+on:
+  pull_request:
+    paths:
+      - .github/scripts/dependabot_codeql_automerge.py
+      - .github/scripts/test_dependabot_codeql_automerge.py
+      - .github/workflows/dependabot-codeql-automerge.yml
+  workflow_run:
+    workflows: [CodeQL, Quality checks]
+    types: [completed]
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Actually merge eligible CodeQL patches (default: dry-run)'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verified-codeql-patch-automerge-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  regression-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Read-only PR checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Unit test the merge guard
+        run: python3 -m unittest discover -s .github/scripts -p 'test_dependabot_codeql_automerge.py' -v
+
+  verified-merge:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.actor.login == 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      checks: read
+      statuses: read
+    steps:
+      - name: Checkout trusted main (never PR code)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Verify the merge guard before using write permissions
+        run: python3 -m unittest discover -s .github/scripts -p 'test_dependabot_codeql_automerge.py' -v
+      - name: Check PR and merge only an entirely verified CodeQL patch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_APPLY: ${{ inputs.apply }}
+        run: |
+          set -Eeuo pipefail
+          args=()
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$REQUESTED_APPLY" != true ]]; then
+            args+=(--dry-run)
+          fi
+          python3 .github/scripts/dependabot_codeql_automerge.py "${args[@]}"
