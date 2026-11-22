@@ -14,7 +14,7 @@
     "securitywatch_image_origin.py": "05a9a72cab2c5f7b1886f960a011edd16bcd79320a26aff0cbf383a89ebc5680",
     "securitywatch_lifecycle.py": "a4de14c9fc2133e7208dcbb5a52c0dde83ea2dbe6553095962bf6d22a9ec4960",
     "securitywatch_mail.py": "731a8a957a48dfa05b9e58f852f654550ec24e4d74a43bb8f2c2830ad5ffc5da",
-    "securitywatch_minecraft_java.py": "3f6006780bf955a84e982edef748a998f10f181f505eb8bcf1aab9b08811a3f6",
+    "securitywatch_minecraft_java.py": "c7960e36aca7957e63daf52abe3a2e5852b60d374a82b0e4cde674c568ffb27c",
     "securitywatch_notifications.py": "11fe396b32954a017b2e5850a6c92a41d68f8599473285eb2c5561848a6f2d4f",
     "securitywatch_project_updates.py": "f0adfa76cd55f1ce284a21f6729437b53046c25f6747df4dc58fbfa297a86e0f",
     "securitywatch_report.py": "f598da522d0d0f6f1944a72c6bc17b4c27157ad454bba4a54157254063f8c97a",
