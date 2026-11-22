@@ -1,233 +1,123 @@
-# UGREEN SecurityWatch
+# UGREEN SecurityWatch 4.2
 
 [![Quality](https://github.com/Railsimulatornet/UGREEN-NAS-SecurityWatch/actions/workflows/quality.yml/badge.svg?branch=main)](https://github.com/Railsimulatornet/UGREEN-NAS-SecurityWatch/actions/workflows/quality.yml)
-[![CodeQL](https://github.com/Railsimulatornet/UGREEN-NAS-SecurityWatch/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/Railsimulatornet/UGREEN-NAS-SecurityWatch/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-![UGREEN SecurityWatch](Screens/SecurityWatch.png)
+SecurityWatch prüft das NAS-Dateisystem und die Images laufender Docker-Container mit Trivy. Es baut zugeordnete lokale Images regelmäßig neu und übernimmt geeignete lokale oder veröffentlichte Kandidaten mit Zustandsprüfung und geschütztem Rückfall. Berichte und E-Mails sind auf Deutsch.
 
-[Deutsch](#deutsch) · [English](#english)
+## Inhalt der Mail
 
-## Deutsch
+- Betroffene Container mit kritischen und hohen Paketbefunden und bekannten Paketkorrekturen — auch bei einem reinen Berichtslauf.
+- Welche Images neu gebaut wurden, ob sie tatsächlich übernommen wurden und welche Befunde im laufenden Stand verbleiben.
+- Getrennte Ergebnisse für verworfene Kandidaten, zurückgesetzte Dienste und unbekannte Prüfstände.
+- Ein kurzer Auszug der NAS-/UGOS-Paketbefunde und konkrete offene Aktualisierungsvoraussetzungen.
+- Aufbewahrung und Bereinigung von Vorversionen und Berichten.
 
-Skriptpaket für **UGREEN NAS mit UGOS**. SecurityWatch prüft das Host-Dateisystem und die Docker-Images laufender Container mit Trivy. Es erstellt Berichte und kann diese als Text- und HTML-Mail versenden. Über die Konfiguration lassen sich außerdem Docker-Bereinigung und automatische Image-Aktualisierungen steuern.
+Ein Image wird bei mehreren Containern einmal gezählt. Die Zahlen bezeichnen Paketbefunde, nicht ausschließlich verschiedene CVE-Nummern oder nachgewiesene Angriffswege. Herstelleranpassungen und unbekannte Schwachstellen können nicht allein aus Versionsangaben beurteilt werden. SecurityWatch installiert keine UGOS- oder Host-Paketaktualisierungen.
 
-### Funktionen
+Die HTML-Mail ist einspaltig, auf 680 Pixel begrenzt und besitzt eine Klartextalternative. Sie benötigt keine externen Bilder oder Schriftarten.
 
-- Host-Scan mit Trivy `rootfs` gegen `/host` und Scan der Images laufender Container.
-- Berichte als `summary.json`, `mail.txt` und `mail.html`, ein Ordner pro Lauf unter `reports/`.
-- Deutsche oder englische Ausgaben über `OUTPUT_LANG`.
-- Zusatzbericht für lokal gebaute Images und deren behebbare Paketfunde.
-- Konfigurierbare Docker-Bereinigung, Rebuilds lokaler Compose-Images und Aktualisierung von Registry-Images.
-- E-Mail nur bei Treffern oder zusätzlich als OK-Meldung; konfigurierbare Berichtaufbewahrung.
+## Voraussetzungen
 
-### Voraussetzungen
+Python **3.11 oder neuer**, Bash und Docker mit Compose und Buildx. Außerdem Zugriff auf den lokalen Docker-Dienst und die tatsächlichen Compose-Projekte, genügend Speicher für Prüfdatenbanken und Kandidaten sowie ein SMTP-Server für E-Mails.
 
-- UGREEN NAS mit aktivem Docker-Dienst und SSH-Zugang.
-- Bash, Python 3 und ausreichende Rechte für den Host- und Docker-Zugriff; die Beispiele verwenden eine Root-Sitzung.
-- Zugriff auf das Trivy-Image und dessen Schwachstellendatenbank.
-- Für automatische Image-Aktualisierungen: passende Compose-Projekte und verfügbare Projektdateien.
-- Für Mailberichte: erreichbarer SMTP-Server und gültige Versanddaten.
+Die automatisierten Tests laufen ausdrücklich unter Python 3.11 und 3.12. Docker-, Registry- und SMTP-Interaktionen werden in diesen Tests nachgebildet. Ein tatsächlicher Durchlauf auf dem eigenen NAS bleibt erforderlich.
 
-### Schnellstart
+## Bestehende Installation aktualisieren
 
-1. Kopiere den **inneren Ordner [securitywatch/](securitywatch/)** nach `/volume2/docker/securitywatch/`. Der Repository-Root enthält zusätzlich Handbuch, Bilder und Projektdateien.
-2. Verbinde dich per SSH und bereite die Erstinstallation vor:
+Den Ordner [`securitywatch/`](securitywatch/) als separaten Paketordner auf das NAS kopieren. Die bestehende Installation samt `.env` nicht manuell überschreiben:
 
 ```bash
-sudo -i
-cd /volume2/docker/securitywatch
-cp .env.example .env
-chmod +x securitywatch_scan.sh securitywatch_report.py securitywatch_mail.py
+(
+  set -e
+  paket=/volume2/docker/securitywatch-update-4.2.0
+  sudo python3 "$paket/install_securitywatch.py" --check
+  sudo python3 "$paket/install_securitywatch.py" --install
+  sudo /volume2/docker/securitywatch/securitywatch_scan.sh --check
+)
 ```
 
-3. Bearbeite `.env`: Setze Sprache, Pfade und SMTP-Daten. Entscheide vor dem ersten regulären Lauf über die automatischen Aktionen im nächsten Abschnitt. Bei einer bestehenden Installation behältst du deine `.env`.
-4. Starte einen ersten Scan ohne Docker-Bereinigung, lokale Rebuilds oder Container-Image-Updates:
+Der Installer prüft das Paket, sichert die bisherigen Programme und erhält Konfiguration und Zustandsdaten. Er startet keinen Wartungslauf und verändert keinen Zeitplan. Eine unterbrochene Installation sperrt normale Läufe bis zur vollständigen Installation oder Wiederherstellung.
+
+Für eine Erstinstallation den Ordner `securitywatch/` am gewünschten Ort ablegen, `.env.example` als `.env` übernehmen und Pfade sowie Maildaten anpassen. Danach mit Vorprüfung und Bericht beginnen.
+
+## Aufrufe und Zeitplan
 
 ```bash
-./securitywatch_scan.sh --no-cleanup --no-local-image-rebuild \
-  --no-image-update-check --no-image-update-recreate
+# Bestand und Voraussetzungen prüfen
+sudo /volume2/docker/securitywatch/securitywatch_scan.sh --check
+
+# Sicherheitsbericht und Mail ohne Austausch der Anwendungsimages
+sudo /volume2/docker/securitywatch/securitywatch_scan.sh --report-only
+
+# Bericht ohne Versand
+sudo /volume2/docker/securitywatch/securitywatch_scan.sh --report-only --no-mail
+
+# Reguläre Prüfung mit freigegebenen Wartungsaktionen
+sudo /volume2/docker/securitywatch/securitywatch_scan.sh
 ```
 
-Mit `--no-mail` erzeugst du Berichte ohne E-Mail-Versand. Prüfe den neuen Report-Ordner und richte danach den Zeitplan ein.
+Auch Vorprüfungen und reine Berichtsläufe wenden die konfigurierte Berichtsaufbewahrung an. `--no-report-cleanup` setzt sie einmalig aus. Anwendungsimages werden bei `--report-only` weder neu gebaut noch ersetzt oder gelöscht.
 
-### Konfiguration
-
-Die Datei [.env.example](securitywatch/.env.example) beschreibt alle Werte auf Deutsch und Englisch.
-
-| Bereich | Wichtige Werte |
-|---|---|
-| Sprache | `OUTPUT_LANG=de` oder `OUTPUT_LANG=en` |
-| Ablage | `BASE_DIR`, `REPORT_DIR`, `CACHE_DIR`, `STATE_DIR` |
-| Trivy | `TRIVY_IMAGE`, `TRIVY_SEVERITIES`, `TRIVY_TIMEOUT`, `TRIVY_IGNORE_UNFIXED` |
-| Scanumfang | `TRIVY_SCAN_FILESYSTEM`, `TRIVY_SCAN_IMAGES`, `TRIVY_SKIP_DIRS` |
-| SMTP | `SMTP_SERVER`, `SMTP_PORT`, `SMTP_STARTTLS`, `SMTP_FROM`, `SMTP_TO` |
-| Anmeldung | `SMTP_USER`, `SMTP_PASS` oder `SMTP_PASS_FILE` |
-| Mailauswahl | `MAIL_ONLY_ON_FINDINGS`, `MAIL_SEND_OK`, `MAIL_SUBJECT_PREFIX` |
-| Berichte | `REPORT_CLEANUP_ENABLED`, `REPORT_RETENTION_DAYS`, `REPORT_KEEP_LAST` |
-
-Die Vorlage scannt `HIGH,CRITICAL` und blendet Funde ohne verfügbaren Fix nicht aus (`TRIVY_IGNORE_UNFIXED=0`). `TRIVY_SKIP_DIRS` nimmt unter anderem `/host/volume1`, `/host/volume2` und `/host/volume3` vom Host-Scan aus. Prüfe diese Auswahl für deine NAS.
-
-#### Automatische Aktionen
-
-**Die mitgelieferte ENV-Vorlage aktiviert die folgenden Aktionen.** Ein regulärer Aufruf kann deshalb Images entfernen oder Compose-Services neu erstellen.
-
-| Einstellung in der Vorlage | Wirkung |
-|---|---|
-| `DOCKER_CLEANUP_BEFORE_SCAN=1` | Docker-Bereinigung vor dem Scan |
-| `DOCKER_PRUNE_UNUSED_IMAGES=1` | Unbenutzte Images entfernen; bei `0` nur Images ohne Tag und ohne Verwendung |
-| `DOCKER_PRUNE_BUILD_CACHE=1` | Ungenutzten Build-Cache entfernen |
-| `LOCAL_IMAGE_AUTO_REBUILD_ENABLED=1` | Betroffene lokale Compose-Images mit behebbaren Funden neu bauen und den Service neu erstellen |
-| `IMAGE_UPDATE_CHECK_ENABLED=1` | Neuere Registry-Images per `docker pull` laden |
-| `IMAGE_UPDATE_AUTO_RECREATE_ENABLED=1` | Betroffene Compose-Services mit dem neu geladenen Image neu erstellen |
-
-Mit `DOCKER_CLEANUP_BEFORE_SCAN=0` deaktivierst du die gesamte Docker-Bereinigung. Für reine Prüfung ohne automatische Service-Änderungen setze `LOCAL_IMAGE_AUTO_REBUILD_ENABLED=0` und `IMAGE_UPDATE_AUTO_RECREATE_ENABLED=0`. Mit `IMAGE_UPDATE_CHECK_ENABLED=0` entfällt auch das Laden neuer Container-Images. Die CLI-Schalter im Schnellstart gelten jeweils nur für diesen Lauf.
-
-### Zeitplan und Berichte
-
-Ein Aufruf ohne Zusatzoptionen verwendet deine `.env`:
-
-```bash
-cd /volume2/docker/securitywatch
-./securitywatch_scan.sh
-```
-
-Nach einem erfolgreichen manuellen Test kannst du mit `crontab -e` einen täglichen Lauf um 06:30 Uhr einrichten:
+Für einen Wochenlauf kann der vorhandene NAS-Zeitplan verwendet werden. Beispiel für einen Host in Europe/Berlin:
 
 ```cron
-30 6 * * * cd /volume2/docker/securitywatch && /volume2/docker/securitywatch/securitywatch_scan.sh >> /volume2/docker/securitywatch/cron.log 2>&1
+0 6 * * 0 /volume2/docker/securitywatch/securitywatch_scan.sh >> /volume2/docker/securitywatch/cron.log 2>&1
 ```
 
-Jeder Lauf legt einen eigenen Report-Ordner an. Die Vorlage verwendet für die Bereinigung alter Berichte `REPORT_RETENTION_DAYS=30` und `REPORT_KEEP_LAST=10`. Mit `--no-report-cleanup` setzt du diese Bereinigung für einen Lauf aus. Alle Aufrufoptionen zeigt `./securitywatch_scan.sh --help` bei vorhandener `.env`.
+GitHub-Bauten sollten bereits am Samstag stattfinden, damit ihre geprüften Veröffentlichungen vor dem Sonntagslauf bereitliegen. SecurityWatch richtet keinen zweiten Zeitplan ein.
 
-![Beispielbericht Deutsch](Screens/Securitywatch.jpg)
+## Lokale Neubauten und Übernahme
 
-### Aktualisierung
+Ein lokaler Kandidat wird mit der tatsächlich zugeordneten Compose-Bauanleitung getrennt gebaut. Ausgangsimage und Kandidat werden anhand ihrer festen Image-IDs mit derselben Schwachstellendatenbank verglichen. Neue oder höher bewertete hohe/kritische Befunde verhindern die Übernahme.
 
-Ersetze die drei Skripte aus [securitywatch/](securitywatch/) durch den aktuellen Stand. Behalte deine `.env`, Berichte, Cache- und Zustandsordner. Vergleiche neue Einstellungen in `.env.example` mit deiner Konfiguration und führe danach einen manuellen Test aus.
+Für den Austausch ist zusätzlich eine belastbare Zustandsprüfung notwendig. Fehlt sie, kann SecurityWatch einen lokalen Kandidaten trotzdem bauen und prüfen. Das laufende Image bleibt erhalten und wird nicht als repariert dargestellt. Ein ausschließlich vorübergehend erzeugter Kandidat wird anschließend entfernt.
 
-### Projektstruktur und Dokumentation
+Regelmäßige Neubauten haben standardmäßig 144 Stunden Abstand. Fehlgeschlagene Versuche dürfen nach 24 Stunden wiederholt werden. Geänderte Baugrundlagen, geänderte Befunde oder eine inzwischen mögliche Übernahme erlauben eine frühere Prüfung. `--force-rebuild` überspringt die Wartefrist, ohne Schutzprüfungen abzuschalten.
 
-| Datei | Aufgabe |
+Ein Neubau aktualisiert nicht automatisch festgeschriebene Anwendungsabhängigkeiten oder einen Git-Arbeitsstand. Diese Quellen gehören zur Pflege des jeweiligen Projekts. Verbleibende Paketbefunde werden weiter gemeldet.
+
+## Aufbewahrung
+
+| Inhalt | Standard und Schutz |
 |---|---|
-| [securitywatch_scan.sh](securitywatch/securitywatch_scan.sh) | Scan und konfigurierte Wartungsaktionen |
-| [securitywatch_report.py](securitywatch/securitywatch_report.py) | Zusammenfassung und Mailinhalt |
-| [securitywatch_mail.py](securitywatch/securitywatch_mail.py) | SMTP-Versand |
-| [.env.example](securitywatch/.env.example) | Deutsche und englische Konfigurationsvorlage |
-| [Handbuch DE/EN](UGREEN_SecurityWatch_Handbuch_DE-EN.pdf) | Ausführliche Anleitung als PDF |
+| Ersetzte Images | Mindestens sieben volle Tage ab dem erfolgreich geprüften Austausch |
+| Berichte | 30 Tage, mindestens die letzten zehn Läufe |
+| Aktueller Bericht | Wird durch seinen eigenen Lauf niemals entfernt |
+| Offene Wiederherstellung | Betroffene Images geschützt; Berichtsbereinigung zurückgestellt |
 
-### Lizenz
+Vorversionen werden beim nächsten zulässigen Wartungslauf entfernt, sofern sie nicht mehr verwendet werden und ihr Nachfolger weiterhin bestätigt ist. Es gibt kein pauschales `docker image prune` und keine pauschale Leerung des Bauzwischenspeichers.
+
+Neue Berichtsordner heißen `JJJJ-MM-TT_HH-MM-SS`. Bei einer Kollision wird kurz auf die nächste tatsächliche Sekunde gewartet. Vorhandene Berichte werden nie überschrieben. Bisherige Ordner mit Zusatz und nachweisbar vollständige ältere SecurityWatch-Berichte werden ebenfalls berücksichtigt. Unbekannte Ordner bleiben erhalten.
+
+## GitHub
+
+Die Datei [`securitywatch.github.example.json`](securitywatch/securitywatch.github.example.json) zeigt die Zuordnung von Repository, tatsächlichem Veröffentlichungsablauf, Zweig und Image-Mustern. Die aktive allgemeine Vorlage ist zunächst deaktiviert. Die Überwachung liest nur; sie verändert keine Repository-Dateien und startet keine Builds.
+
+Ein erfolgreicher beliebiger GitHub-Ablauf beweist keine Image-Veröffentlichung. Feste Versionsnamen und Prüfsummen werden nicht stillschweigend auf andere Aktualisierungskanäle umgestellt.
+
+`securitywatch_project_updates.py` ist ein begrenzter Helfer für drei ausdrücklich zugeordnete bestehende Projekte, kein allgemeiner Umstellungsassistent. `--check` zeigt den Plan, `--apply` übernimmt einen geprüften Kandidaten. Eine Rückkehr zum alten Image stellt keine Anwendungsdaten wieder her.
+
+## Einstellungen
+
+Die vollständige Vorlage liegt in [`.env.example`](securitywatch/.env.example). Vorhandene Zugangsdaten bleiben bei der Installation erhalten.
+
+| Einstellung | Bedeutung |
+|---|---|
+| `LOCAL_IMAGE_AUTO_REBUILD_ENABLED` | Regelmäßige lokale Neubauten erlauben |
+| `IMAGE_UPDATE_CHECK_ENABLED` | Veröffentlichte Versionen prüfen |
+| `IMAGE_UPDATE_AUTO_RECREATE_ENABLED` | Geeignete Veröffentlichungen übernehmen |
+| `IMAGE_RETENTION_DAYS` | Vorversionen aufbewahren; mindestens 7 |
+| `REPORT_CLEANUP_ENABLED` | Berichtsbereinigung ein-/ausschalten |
+| `REPORT_RETENTION_DAYS` | Altersschwelle für Berichte |
+| `REPORT_KEEP_LAST` | Mindestanzahl der letzten Berichte |
+| `MAIL_SEND_ON_IMAGE_UPDATES` | Aktualisierungen und Wartungshindernisse melden |
+| `MAIL_SEND_WEEKLY_SUMMARY` | Zusammenfassung des regulären Wartungslaufs |
+
+Der dauerhafte Ordner `state/` enthält Image-Zuordnungen, Fristen und Wiederherstellungsjournale. Er gehört zur Installation und darf nicht als Zwischenspeicher gelöscht werden. Anwendungsdaten benötigen weiterhin eigene Sicherungen.
+
+## Dokumentation und Lizenz
+
+Dieses README beschreibt die aktuelle Fassung. Ältere Bildschirmbilder und das vorhandene PDF-Handbuch dokumentieren die frühere Oberfläche. Deren Bereinigungs- und Installationsanweisungen gelten nicht für Version 4.2.
 
 [MIT-Lizenz](LICENSE). Roman Glos / Railsimulatornet.
-
-## English
-
-Script package for **UGREEN NAS running UGOS**. SecurityWatch scans the host filesystem and the Docker images of running containers with Trivy. It generates reports and can send them as plain text and HTML email. Configuration also controls Docker cleanup and automatic image updates.
-
-### Features
-
-- Host scan with Trivy `rootfs` against `/host`, plus scans of images used by running containers.
-- Reports as `summary.json`, `mail.txt` and `mail.html`, with one folder per run under `reports/`.
-- German or English output through `OUTPUT_LANG`.
-- Additional report for locally built images and their fixable package findings.
-- Configurable Docker cleanup, rebuilds of local Compose images and registry image updates.
-- Email only on findings or additionally as an OK report; configurable report retention.
-
-### Requirements
-
-- UGREEN NAS with a running Docker service and SSH access.
-- Bash, Python 3 and sufficient permissions for host and Docker access; the examples use a root session.
-- Access to the Trivy image and its vulnerability database.
-- For automatic image updates: suitable Compose projects and accessible project files.
-- For email reports: a reachable SMTP server and valid delivery settings.
-
-### Quick start
-
-1. Copy the **inner [securitywatch/](securitywatch/) folder** to `/volume2/docker/securitywatch/`. The repository root also contains the manual, images and project files.
-2. Connect over SSH and prepare the first installation:
-
-```bash
-sudo -i
-cd /volume2/docker/securitywatch
-cp .env.example .env
-chmod +x securitywatch_scan.sh securitywatch_report.py securitywatch_mail.py
-```
-
-3. Edit `.env`: Set the language, paths and SMTP details. Choose the automatic actions described below before your first regular run. Keep your existing `.env` when updating an installation.
-4. Run an initial scan without Docker cleanup, local rebuilds or container image updates:
-
-```bash
-./securitywatch_scan.sh --no-cleanup --no-local-image-rebuild \
-  --no-image-update-check --no-image-update-recreate
-```
-
-Add `--no-mail` to generate reports without sending email. Check the new report folder before setting up a schedule.
-
-### Configuration
-
-[.env.example](securitywatch/.env.example) documents all values in German and English.
-
-| Area | Important values |
-|---|---|
-| Language | `OUTPUT_LANG=de` or `OUTPUT_LANG=en` |
-| Storage | `BASE_DIR`, `REPORT_DIR`, `CACHE_DIR`, `STATE_DIR` |
-| Trivy | `TRIVY_IMAGE`, `TRIVY_SEVERITIES`, `TRIVY_TIMEOUT`, `TRIVY_IGNORE_UNFIXED` |
-| Scan scope | `TRIVY_SCAN_FILESYSTEM`, `TRIVY_SCAN_IMAGES`, `TRIVY_SKIP_DIRS` |
-| SMTP | `SMTP_SERVER`, `SMTP_PORT`, `SMTP_STARTTLS`, `SMTP_FROM`, `SMTP_TO` |
-| Authentication | `SMTP_USER`, `SMTP_PASS` or `SMTP_PASS_FILE` |
-| Email selection | `MAIL_ONLY_ON_FINDINGS`, `MAIL_SEND_OK`, `MAIL_SUBJECT_PREFIX` |
-| Reports | `REPORT_CLEANUP_ENABLED`, `REPORT_RETENTION_DAYS`, `REPORT_KEEP_LAST` |
-
-The template scans `HIGH,CRITICAL` and includes findings without an available fix (`TRIVY_IGNORE_UNFIXED=0`). `TRIVY_SKIP_DIRS` excludes paths including `/host/volume1`, `/host/volume2` and `/host/volume3` from the host scan. Review this selection for your NAS.
-
-#### Automatic actions
-
-**The supplied ENV template enables the following actions.** A regular run can therefore remove images or recreate Compose services.
-
-| Template setting | Effect |
-|---|---|
-| `DOCKER_CLEANUP_BEFORE_SCAN=1` | Clean up Docker before scanning |
-| `DOCKER_PRUNE_UNUSED_IMAGES=1` | Remove unused images; with `0`, remove only untagged, unused images |
-| `DOCKER_PRUNE_BUILD_CACHE=1` | Remove unused build cache |
-| `LOCAL_IMAGE_AUTO_REBUILD_ENABLED=1` | Rebuild affected local Compose images with fixable findings and recreate their services |
-| `IMAGE_UPDATE_CHECK_ENABLED=1` | Download newer registry images using `docker pull` |
-| `IMAGE_UPDATE_AUTO_RECREATE_ENABLED=1` | Recreate affected Compose services with the newly downloaded image |
-
-Set `DOCKER_CLEANUP_BEFORE_SCAN=0` to disable all Docker cleanup. For scanning without automatic service changes, set `LOCAL_IMAGE_AUTO_REBUILD_ENABLED=0` and `IMAGE_UPDATE_AUTO_RECREATE_ENABLED=0`. Setting `IMAGE_UPDATE_CHECK_ENABLED=0` also prevents downloading newer container images. The command-line switches in the quick start apply to that run only.
-
-### Schedule and reports
-
-A run without additional options uses your `.env`:
-
-```bash
-cd /volume2/docker/securitywatch
-./securitywatch_scan.sh
-```
-
-After a successful manual test, use `crontab -e` to schedule a daily run at 06:30:
-
-```cron
-30 6 * * * cd /volume2/docker/securitywatch && /volume2/docker/securitywatch/securitywatch_scan.sh >> /volume2/docker/securitywatch/cron.log 2>&1
-```
-
-Each run creates a separate report folder. The template uses `REPORT_RETENTION_DAYS=30` and `REPORT_KEEP_LAST=10` to clean up old reports. Add `--no-report-cleanup` to skip that cleanup for one run. With an existing `.env`, `./securitywatch_scan.sh --help` lists all command-line options.
-
-![Example report in English](Screens/SecuritywatchEN.jpg)
-
-### Updates
-
-Replace the three scripts from [securitywatch/](securitywatch/) with the current versions. Keep your `.env`, reports, cache and state folders. Compare new settings in `.env.example` with your configuration, then run a manual test.
-
-### Project structure and documentation
-
-| File | Purpose |
-|---|---|
-| [securitywatch_scan.sh](securitywatch/securitywatch_scan.sh) | Scanning and configured maintenance actions |
-| [securitywatch_report.py](securitywatch/securitywatch_report.py) | Summary and email content |
-| [securitywatch_mail.py](securitywatch/securitywatch_mail.py) | SMTP delivery |
-| [.env.example](securitywatch/.env.example) | German and English configuration template |
-| [DE/EN manual](UGREEN_SecurityWatch_Handbuch_DE-EN.pdf) | Detailed PDF guide |
-
-### License
-
-[MIT License](LICENSE). Roman Glos / Railsimulatornet.

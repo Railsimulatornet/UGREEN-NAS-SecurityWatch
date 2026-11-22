@@ -13,11 +13,20 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      - name: Use the supported Python runtime
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
 
       - name: Check shell syntax and ShellCheck errors
         shell: bash
@@ -70,3 +79,16 @@ jobs:
                       checked += 1
           print(f"Parsed {checked} Python files/blocks without executing them.")
           PYCODE
+
+      - name: Test reporting, updates and recovery
+        run: python -m unittest discover -s securitywatch/tests -v
+
+      - name: Verify the complete installation package
+        run: |
+          cd securitywatch
+          python - <<'PY'
+          from pathlib import Path
+          from install_securitywatch import verify_package
+          manifest, files = verify_package(Path.cwd())
+          print(f"SecurityWatch {manifest['version']}: {len(files)} program files verified")
+          PY
