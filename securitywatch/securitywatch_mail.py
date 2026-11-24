@@ -4,6 +4,7 @@ import argparse
 import json
 import shlex
 import smtplib
+import ssl
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -116,7 +117,7 @@ def main() -> None:
     with smtplib.SMTP(server, port, timeout=30) as smtp:
         smtp.ehlo()
         if starttls:
-            smtp.starttls()
+            smtp.starttls(context=ssl.create_default_context())
             smtp.ehlo()
         if user:
             smtp.login(user, password)

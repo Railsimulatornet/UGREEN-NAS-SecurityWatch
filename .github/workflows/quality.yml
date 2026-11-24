@@ -31,6 +31,9 @@ jobs:
             shellcheck --severity=error "${scripts[@]}"
           fi
 
+      - name: Run isolated mail regression tests
+        run: python3 -m unittest discover -s tests -v
+
       - name: Check Python files and embedded Python syntax
         shell: bash
         run: |
