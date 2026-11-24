@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '47 4 * * 4'
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Require this exact commit for an automated post-merge check
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -15,6 +20,10 @@ permissions:
 concurrency:
   group: codeql-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  SOURCE_REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
 
 jobs:
   analyze:
@@ -29,9 +38,21 @@ jobs:
       matrix:
         language: [actions, python]
     steps:
+      - name: Verify requested source commit
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "$EXPECTED_SHA" ]]; then
+            [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+            [[ "$GITHUB_SHA" == "$EXPECTED_SHA" ]]
+          fi
       - name: Checkout source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Initialize CodeQL
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
@@ -41,4 +62,7 @@ jobs:
       - name: Analyze source
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
+          sha: ${{ env.SOURCE_SHA }}
+          ref: ${{ env.SOURCE_REF }}
           category: '/language:${{ matrix.language }}'
+

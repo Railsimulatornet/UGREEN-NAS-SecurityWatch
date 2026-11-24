@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Require this exact commit for an automated post-merge check
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -14,9 +19,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Verify requested source commit
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "$EXPECTED_SHA" ]]; then
+            [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+            [[ "$GITHUB_SHA" == "$EXPECTED_SHA" ]]
+          fi
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Check shell syntax and ShellCheck errors
@@ -73,3 +90,4 @@ jobs:
                       checked += 1
           print(f"Parsed {checked} Python files/blocks without executing them.")
           PYCODE
+
