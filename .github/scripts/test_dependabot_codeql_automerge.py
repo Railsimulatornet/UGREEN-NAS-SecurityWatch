@@ -38,8 +38,9 @@ class FakeAPI:
             },
             ROOT + "/git/ref/heads/main": {"object": {"sha": BASE}},
             ROOT + f"/compare/{BASE}...{HEAD}": {"behind_by": 0, "ahead_by": 1},
-            ROOT + f"/commits/{HEAD}/status": {"statuses": []},
+            ROOT + f"/commits/{HEAD}/status": {"sha": HEAD, "total_count": 0, "statuses": []},
         }
+        self.data[ROOT + f"/commits/{HEAD}/status?per_page=100"] = self.data[ROOT + f"/commits/{HEAD}/status"]
         self.arrays = {
             ROOT + "/pulls/3/files": changes(),
             ROOT + f"/actions/runs?event=pull_request&head_sha={HEAD}": [
@@ -70,7 +71,9 @@ class FakeAPI:
 
     def request(self, path, method="GET", data=None):
         self.calls.append((method, path, data))
-        return {"merged": True, "sha": "merged-sha"}
+        if method == "PUT":
+            self.data[ROOT + "/git/ref/heads/main"] = {"object": {"sha": "c" * 40}}
+        return {"merged": True, "sha": "c" * 40}
 
 
 class DiffValidation(unittest.TestCase):
@@ -200,5 +203,109 @@ class MergeVerification(unittest.TestCase):
         self.assertEqual(gate.candidates(a, event, "workflow_run"), [])
 
 
+
+class CompleteEvidenceAndBoundDispatch(unittest.TestCase):
+    def candidate(self):
+        return FakeAPI(), HEAD
+
+    def verify(self, api, head):
+        gate.verify_ci(api, head)
+
+    def merge(self, api):
+        gate.process(api, 3)
+
+    def status_route(self, api, head):
+        return f'/repos/{api.repository}/commits/{head}/status?per_page=100'
+
+    def test_truncated_status_collection_cannot_authorize_merge(self):
+        api, head = self.candidate()
+        api.data[self.status_route(api, head)]['total_count'] = 31
+        with self.assertRaises(gate.StopMerge):
+            self.merge(api)
+        self.assertFalse(any(call[0] == 'PUT' for call in api.calls))
+
+    def test_status_collection_must_belong_to_verified_head(self):
+        api, head = self.candidate()
+        api.data[self.status_route(api, head)]['sha'] = 'e' * 40
+        with self.assertRaises(gate.StopMerge):
+            self.merge(api)
+        self.assertFalse(any(call[0] == 'PUT' for call in api.calls))
+
+    def test_failure_after_default_page_prevents_merge(self):
+        api, head = self.candidate()
+        route = self.status_route(api, head)
+        states = [{'state': 'success'} for _ in range(30)] + [{'state': 'failure'}]
+        api.data[route] = {'sha': head, 'total_count': 31, 'statuses': states}
+        api.data[route.split('?')[0]] = {'sha': head, 'total_count': 31, 'statuses': states[:30]}
+        with self.assertRaises(gate.StopMerge):
+            self.merge(api)
+        self.assertFalse(any(call[0] == 'PUT' for call in api.calls))
+
+    def test_complete_large_success_collection_is_accepted(self):
+        api, head = self.candidate()
+        route = self.status_route(api, head)
+        api.data[route].update(total_count=100, statuses=[{'state': 'success'} for _ in range(100)])
+        self.verify(api, head)
+        self.assertIn(('GET', route), api.calls)
+
+    def test_malformed_merge_identity_never_dispatches(self):
+        from unittest.mock import patch
+        for merged in ('', 'main', None, 'A' * 40):
+            api, head = self.candidate()
+            with self.subTest(merged=merged), patch.object(api, 'request', return_value={'merged': True, 'sha': merged}):
+                with self.assertRaises(RuntimeError):
+                    self.merge(api)
+            self.assertFalse(any(call[0] == 'POST' for call in api.calls))
+
+    def test_main_advance_after_merge_never_dispatches(self):
+        from unittest.mock import patch
+        api, head = self.candidate()
+        request = api.request
+        def move_main(*args, **kwargs):
+            result = request(*args, **kwargs)
+            api.data[f'/repos/{api.repository}/git/ref/heads/main'] = {'object': {'sha': 'e' * 40}}
+            return result
+        with patch.object(api, 'request', side_effect=move_main), self.assertRaises(RuntimeError):
+            self.merge(api)
+        self.assertFalse(any(call[0] == 'POST' for call in api.calls))
+
+    def test_dispatch_uses_confirmed_merge_not_pr_head(self):
+        api, head = self.candidate()
+        self.merge(api)
+        writes = [call for call in api.calls if call[0] == 'POST']
+        self.assertTrue(writes)
+        self.assertTrue(all(call[2] == {'ref': 'main', 'inputs': {'expected_sha': 'c' * 40}}
+                            for call in writes))
+        self.assertNotEqual(head, 'c' * 40)
+
+    def test_dispatch_guard_rejects_moved_or_malformed_source(self):
+        from pathlib import Path
+        import subprocess
+        root = Path(__file__).resolve().parents[2]
+        for workflow in ('codeql.yml', 'quality.yml'):
+            text = (root / '.github/workflows' / workflow).read_text()
+            block = text.split('      - name: Verify requested source commit\n', 1)[1].split('        run: |\n', 1)[1]
+            lines = []
+            for line in block.splitlines():
+                if line and not line.startswith('          '):
+                    break
+                lines.append(line[10:])
+            script = '\n'.join(lines)
+            for expected, actual, valid in (('c' * 40, 'c' * 40, True), ('', 'a' * 40, True),
+                                            ('c' * 40, 'a' * 40, False), ('main', 'a' * 40, False)):
+                with self.subTest(workflow=workflow, expected=expected, actual=actual):
+                    result = subprocess.run(['/bin/bash', '-c', script],
+                        env={'EXPECTED_SHA': expected, 'GITHUB_SHA': actual}, capture_output=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, valid)
+
+
+    def test_missing_status_count_cannot_authorize_merge(self):
+        api, head = self.candidate()
+        del api.data[self.status_route(api, head)]['total_count']
+        with self.assertRaises(gate.StopMerge):
+            self.merge(api)
+        self.assertFalse(any(call[0] == 'PUT' for call in api.calls))
+
 if __name__ == "__main__":
     unittest.main()
+

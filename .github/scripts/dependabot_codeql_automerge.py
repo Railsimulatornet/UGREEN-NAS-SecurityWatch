@@ -158,8 +158,13 @@ def verify_ci(api, sha):
         if status == "success" or (status == "skipped" and check["name"] in ALLOWED_SKIPPED):
             continue
         raise StopMerge(f"Unverified check {check['name']}: {status}")
-    old = api.get(f"{base}/commits/{sha}/status")
-    if any(c.get("state") != "success" for c in old.get("statuses", [])):
+    old = api.get(f"{base}/commits/{sha}/status?per_page=100")
+    statuses = old.get("statuses")
+    if (old.get("sha") != sha or not isinstance(statuses, list)
+            or type(old.get("total_count")) is not int
+            or old["total_count"] != len(statuses)):
+        raise StopMerge("Legacy commit statuses are incomplete or belong to another commit")
+    if any(c.get("state") != "success" for c in statuses):
         raise StopMerge("Legacy commit status failed or is pending")
 
 
@@ -207,12 +212,18 @@ def process(api, number, dry_run=False):
                          "PUT", {"sha": head, "merge_method": "squash"})
     if not result or result.get("merged") is not True:
         raise RuntimeError("GitHub did not confirm merge")
-    print(f"MERGED: PR #{number} -> {result['sha']}")
+    merged_sha = result.get("sha")
+    if not isinstance(merged_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", merged_sha):
+        raise RuntimeError("GitHub did not return a valid merge commit")
+    current_main = api.get(f"/repos/{api.repository}/git/ref/heads/main")["object"]["sha"]
+    if current_main != merged_sha:
+        raise RuntimeError("Main advanced after merge; post-merge checks need attention")
+    print(f"MERGED: PR #{number} -> {merged_sha}")
     # GITHUB_TOKEN merges suppress push-triggered Actions. Explicit, non-publishing
     # CodeQL and Quality workflows are the only intended post-merge jobs.
     for workflow in ("codeql.yml", "quality.yml"):
         api.request(f"/repos/{api.repository}/actions/workflows/{workflow}/dispatches",
-                    "POST", {"ref": "main"})
+                    "POST", {"ref": "main", "inputs": {"expected_sha": merged_sha}})
         print(f"Post-merge validation requested: {workflow}")
 
 
@@ -249,3 +260,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
